@@ -3,7 +3,7 @@ using static System.Console;
 
 namespace AutoMLSample.Helpers;
 
-internal static class ConsoleHelpers
+public static class ConsoleHelpers
 {
     private const int Width = 114;
     private const ConsoleColor YellowColor = ConsoleColor.Yellow;
@@ -84,7 +84,7 @@ internal static class ConsoleHelpers
 
     private static void CreateRow(string message, int width)
     {
-        WriteLineColor(message.PadRight(width - 2), YellowColor);
+        WriteLineColor(message.PadRight(width - 2));
     }
 
     internal static void WriteLineColor(string textLine, ConsoleColor color = YellowColor)

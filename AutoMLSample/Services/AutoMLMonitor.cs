@@ -19,13 +19,7 @@ public class AutoMLMonitor : IMonitor
     public void ReportBestTrial(TrialResult result)
     {
         var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        Console.WriteLine($" {pipeline.ToString().Split("=>").Last()}");
-    }
-
-    public string ReturnBestTrial(TrialResult result)
-    {
-        var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        return $" {pipeline.ToString().Split("=>").Last()}";
+        Log.Information($" Best trial {pipeline.ToString().Split("=>").Last()}");
     }
 
     public void ReportCompletedTrial(TrialResult result)
@@ -42,7 +36,7 @@ public class AutoMLMonitor : IMonitor
 
         var timeToTrain = result.DurationInMilliseconds;
         var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        Console.WriteLine($" {pipeline.ToString().Split("=>").Last()} in {timeToTrain}ms");
+        Log.Debug($" Completed trial {pipeline.ToString().Split("=>").Last()} in {timeToTrain} ms");
         _completedTrials.Add(result);
     }
 
@@ -50,13 +44,23 @@ public class AutoMLMonitor : IMonitor
     {
         if (exception.Message.Contains("Operation was canceled."))
         {
-            Console.WriteLine($" {settings.TrialId} cancelled. Time budget exceeded.");
+            Log.Error($" Trial {settings.TrialId} cancelled. Time budget exceeded.");
         }
-        Console.WriteLine($" {settings.TrialId} failed with exception {exception.Message}");
+        else 
+        {
+            Log.Error($" Trial {settings.TrialId} failed with exception {exception.Message}");
+        }
     }
 
     public void ReportRunningTrial(TrialSettings setting)
     {
+        Log.Debug($" Trial {setting.TrialId} is running...");
         return;
+    }
+
+    public string GetBestTrial(TrialResult result)
+    {
+        var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
+        return $" {pipeline.ToString().Split("=>").Last()}";
     }
 }

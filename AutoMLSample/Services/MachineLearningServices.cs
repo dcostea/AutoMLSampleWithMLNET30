@@ -1,10 +1,10 @@
 ﻿using System.Data;
 using MathNet.Numerics.Statistics;
 using AutoMLSample.Models;
-using AutoMLSample.Helpers;
 using Microsoft.ML.Trainers.FastTree;
 using static AutoMLSample.Helpers.ConsoleHelpers;
 using static Microsoft.ML.DataOperationsCatalog;
+using Microsoft.ML.Runtime;
 
 namespace AutoMLSample.Services;
 
@@ -43,6 +43,14 @@ internal static class MachineLearningServices
 
     internal static async Task<TrialResult> AutoTrainAsync(uint time, IDataView data, ColumnInferenceResults columnInference)
     {
+        Context.Log += (_, e) =>
+        {
+            if (e.Source.Equals("AutoMLExperiment") && e.Kind.Equals(ChannelMessageKind.Info))
+            {
+                WriteLineColor(e.Message, ConsoleColor.White);
+            }
+        };
+
         WriteLineColor($" INCREASE ML MODEL ACCURACY IN THREE STEPS");
         WriteLineColor($" Learning type: multi-class classification");
         WriteLineColor($" Training time: {time} seconds");
@@ -68,21 +76,13 @@ internal static class MachineLearningServices
         var monitor = new AutoMLMonitor(pipeline);
         experiment.SetMonitor(monitor);
 
-        ////Context.Log += (_, e) => {
-        ////    if (e.Source.Equals("AutoMLExperiment") && e.Kind.Equals(ChannelMessageKind.Info))
-        ////    {
-        ////        WriteLineColor(e.Message, ConsoleColor.White);
-        ////        Console.Write("@");
-        ////    }
-        ////};
-
         ////var cts = new CancellationTokenSource();
         ////var experimentResult = await experiment.RunAsync(cts.Token);
         var experimentResult = await experiment.RunAsync();
         WriteLineColor("----------------------------------------------------------------------------------");
         WriteLineColor($" STEP 1: AutoML experiment result");
         WriteLineColor("----------------------------------------------------------------------------------");
-        WriteLineColor($" Best trainer: {monitor.ReturnBestTrial(experimentResult)}");
+        WriteLineColor($" Best trainer: {monitor.GetBestTrial(experimentResult)}");
         WriteLineColor($" Accuracy: {experimentResult.Metric,-6:F3}    Training time: {experimentResult.DurationInMilliseconds,5}ms    CPU: {monitor.PeakCpu,5:P2}    Memory: {monitor.PeakMemoryInMegaByte,5:F2}MB");
         ////var completedTrials = monitor.GetCompletedTrials();
 
@@ -103,22 +103,30 @@ internal static class MachineLearningServices
         WriteLineColor("----------------------------------------------------------------------------------");
         WriteLineColor($"  {"No",4} {"Feature",-15} {"MicroAccuracy",15} {"95% Mean",15}");
 
+        Context.Log += (_, e) =>
+        {
+            if (e.Source.StartsWith("Permutation") && e.Kind.Equals(ChannelMessageKind.Info))
+            {
+                WriteLineColor(e.Message, ConsoleColor.White);
+            }
+        };
+
         var pfi = Context.MulticlassClassification.PermutationFeatureImportance(transformer, transformedData, label, permutationCount: 5);
-        var metrics = pfi.Select(p => (p.Key, p.Value.MicroAccuracy)).OrderBy(m => m.MicroAccuracy.Mean);
+        ////var metrics = pfi.Select(p => (p.Key, p.Value.MicroAccuracy)).OrderBy(m => m.MicroAccuracy.Mean);
 
         // patching dot issue
-        ////var patchedPfi = pfi.Select(p => new KeyValuePair<string, MulticlassClassificationMetricsStatistics>(p.Key.Split(".").First(), p.Value));
-        ////var groupedPfi = patchedPfi.GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Select(x => x.Value));
-        ////var metrics = groupedPfi.Select(p => new MockMicroAccuracy
-        ////{
-        ////    Key = p.Key,
-        ////    MicroAccuracy = new MockMetricStatistics
-        ////    {
-        ////        Mean = p.Value.Sum(m => m.MicroAccuracy.Mean),
-        ////        StandardError = p.Value.Sum(m => m.MicroAccuracy.StandardError)
-        ////    }
-        ////})
-        ////.OrderBy(m => m.MicroAccuracy.Mean);
+        var patchedPfi = pfi.Select(p => new KeyValuePair<string, MulticlassClassificationMetricsStatistics>(p.Key.Split(".").First(), p.Value));
+        var groupedPfi = patchedPfi.GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Select(x => x.Value));
+        var metrics = groupedPfi.Select(p => new MicroAccuracyModel
+        {
+            Key = p.Key,
+            MicroAccuracy = new MetricStatisticsModel
+            {
+                Mean = p.Value.Sum(m => m.MicroAccuracy.Mean),
+                StandardError = p.Value.Sum(m => m.MicroAccuracy.StandardError)
+            }
+        })
+        .OrderBy(m => m.MicroAccuracy.Mean);
 
         uint noCnt = 1;
         foreach (var metric in metrics)
@@ -192,13 +200,13 @@ internal static class MachineLearningServices
         return (header, dataArray);
     }
 
-    internal class MockMicroAccuracy
+    internal class MicroAccuracyModel
     {
         public string Key { get; set; }
-        public MockMetricStatistics MicroAccuracy { get; set; }
+        public MetricStatisticsModel MicroAccuracy { get; set; }
     }
 
-    internal class MockMetricStatistics
+    internal class MetricStatisticsModel
     {
         public double Mean { get; set; }
         public double StandardError { get; set; }
