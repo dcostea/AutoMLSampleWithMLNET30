@@ -1,25 +1,39 @@
-﻿namespace AutoMLSample.Services;
+﻿using Microsoft.ML.AutoML;
+using Microsoft.ML.AutoML.CodeGen;
+using System.Diagnostics;
+
+namespace AutoMLSample.Services;
 
 public class AutoMLMonitor : IMonitor
 {
-    private readonly SweepablePipeline _pipeline;
-    private readonly List<TrialResult> _completedTrials;
+    private static SweepablePipeline _pipeline;
+    private readonly List<TrialResult> _bestTrials = new();
+    private readonly List<TrialResult> _completedTrials = new();
+    private readonly Stopwatch _stopwatch;
 
     public double? PeakCpu { get; private set; }
     public double? PeakMemoryInMegaByte { get; private set; }
 
-    public AutoMLMonitor(SweepablePipeline pipeline)
+    protected AutoMLMonitor(SweepablePipeline pipeline)
     {
         _pipeline = pipeline;
-        _completedTrials = new List<TrialResult>();
+        _stopwatch = Stopwatch.StartNew();
     }
 
+    public static AutoMLMonitor Create(SweepablePipeline pipeline)
+    {
+        return new AutoMLMonitor(pipeline);
+    }
+
+    public IEnumerable<TrialResult> GetBestTrials() => _bestTrials;
     public IEnumerable<TrialResult> GetCompletedTrials() => _completedTrials;
 
     public void ReportBestTrial(TrialResult result)
     {
-        var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        Log.Information($" Best trial {pipeline.ToString().Split("=>").Last()}");
+        var trainer = ExtractTrainerName(result.TrialSettings);
+        Log.Information(" {@trainer} is BEST trial", trainer.EstimatorType);
+
+        _bestTrials.Add(result);
     }
 
     public void ReportCompletedTrial(TrialResult result)
@@ -34,9 +48,9 @@ public class AutoMLMonitor : IMonitor
             PeakMemoryInMegaByte = result.PeakMemoryInMegaByte;
         }
 
-        var timeToTrain = result.DurationInMilliseconds;
-        var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        Log.Debug($" Completed trial {pipeline.ToString().Split("=>").Last()} in {timeToTrain} ms");
+        var trainer = ExtractTrainerName(result.TrialSettings);
+        Log.Debug(" {@trainer} trial completed in {@timeToTrain} ms", trainer.EstimatorType, result.DurationInMilliseconds);
+
         _completedTrials.Add(result);
     }
 
@@ -44,23 +58,35 @@ public class AutoMLMonitor : IMonitor
     {
         if (exception.Message.Contains("Operation was canceled."))
         {
-            Log.Error($" Trial {settings.TrialId} cancelled. Time budget exceeded.");
+            Log.Error(" Trial {@trialId} cancelled. Time budget exceeded.", settings.TrialId);
         }
         else 
         {
-            Log.Error($" Trial {settings.TrialId} failed with exception {exception.Message}");
+            Log.Error(" Trial {@trialId} failed with exception {@message}", settings.TrialId, exception.Message);
         }
     }
 
-    public void ReportRunningTrial(TrialSettings setting)
+    public void ReportRunningTrial(TrialSettings trialSettings)
     {
-        Log.Debug($" Trial {setting.TrialId} is running...");
-        return;
+        // HERE
+        // elapsed, remaining, percent progress
+        //var trainer = ExtractTrainer(trialSettings);
+        //Log.Debug(" {@trainer} trial...", trainer.EstimatorType);
     }
 
     public string GetBestTrial(TrialResult result)
     {
+        _stopwatch.Stop();
         var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
         return $" {pipeline.ToString().Split("=>").Last()}";
+    }
+
+    public static SweepableEstimator ExtractTrainerName(TrialSettings trialSettings)
+    {
+        trialSettings.Parameter.TryGetValue("_pipeline_", out var pipelineData);
+        string pipeline = pipelineData["_SCHEMA_"].AsType<string>();
+        var lastEstimator = pipeline.Split("*", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Last();
+        var trainer = _pipeline.Estimators[lastEstimator];
+        return trainer;
     }
 }

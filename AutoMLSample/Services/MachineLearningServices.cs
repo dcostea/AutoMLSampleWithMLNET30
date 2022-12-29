@@ -65,26 +65,42 @@ internal static class MachineLearningServices
         var pipeline = preprocessingPipeline
             .Append(Context.Auto().MultiClassification(labelColumnName: columnInference.ColumnInformation.LabelColumnName));
 
-        AutoMLExperiment experiment = Context.Auto()
-            .CreateExperiment()
+        AutoMLExperiment experiment = Context.Auto().CreateExperiment()
             .SetPipeline(pipeline)
             .SetMulticlassClassificationMetric(MulticlassClassificationMetric.MicroAccuracy, labelColumn: columnInference.ColumnInformation.LabelColumnName)
             .SetTrainingTimeInSeconds(time)
             .SetDataset(data);
 
         // Log experiment trials
-        var monitor = new AutoMLMonitor(pipeline);
+        var monitor = AutoMLMonitor.Create(pipeline);
         experiment.SetMonitor(monitor);
+        experiment.SetPerformanceMonitor(100);
+        ////experiment.SetSmacTuner();
 
-        ////var cts = new CancellationTokenSource();
-        ////var experimentResult = await experiment.RunAsync(cts.Token);
-        var experimentResult = await experiment.RunAsync();
+        var cts = new CancellationTokenSource();
+        var experimentResult = await experiment.RunAsync(cts.Token);
+
         WriteLineColor("----------------------------------------------------------------------------------");
         WriteLineColor($" STEP 1: AutoML experiment result");
         WriteLineColor("----------------------------------------------------------------------------------");
-        WriteLineColor($" Best trainer: {monitor.GetBestTrial(experimentResult)}");
-        WriteLineColor($" Accuracy: {experimentResult.Metric,-6:F3}    Training time: {experimentResult.DurationInMilliseconds,5}ms    CPU: {monitor.PeakCpu,5:P2}    Memory: {monitor.PeakMemoryInMegaByte,5:F2}MB");
-        ////var completedTrials = monitor.GetCompletedTrials();
+        WriteLineColor($" Top best trainers:");
+        var bestTrials = monitor.GetBestTrials();
+        foreach (var trial in bestTrials.OrderByDescending(s => s.Metric))
+        {
+            var trainer = AutoMLMonitor.ExtractTrainerName(trial.TrialSettings);
+            WriteLineColor($" Accuracy: {trial.Metric,-6:F3}   Loss: {trial.Loss,-6:F3}   Training time: {trial.DurationInMilliseconds,5} ms    Trainer: {trainer.EstimatorType}");
+        }
+        WriteLineColor("----------------------------------------------------------------------------------");
+        WriteLineColor($" Top completed trainers:");
+        var completedTrials = monitor.GetCompletedTrials();
+        foreach (var trial in completedTrials.OrderByDescending(s => s.Metric))
+        {
+            var trainer = AutoMLMonitor.ExtractTrainerName(trial.TrialSettings);
+            WriteLineColor($" Accuracy: {trial.Metric,-6:F3}   Loss: {trial.Loss,-6:F3}   Training time: {trial.DurationInMilliseconds,5} ms    Trainer: {trainer.EstimatorType}");
+        }
+        WriteLineColor("----------------------------------------------------------------------------------");
+        WriteLineColor($" Best trainer: { monitor.GetBestTrial(experimentResult)}");
+        WriteLineColor($" Accuracy: {experimentResult.Metric,-6:F3}   Training time: {experimentResult.DurationInMilliseconds,5} ms   CPU: {monitor.PeakCpu,5:P2}    Memory: {monitor.PeakMemoryInMegaByte,5:F2}MB");
 
         return experimentResult;
     }
@@ -107,7 +123,7 @@ internal static class MachineLearningServices
         {
             if (e.Source.StartsWith("Permutation") && e.Kind.Equals(ChannelMessageKind.Info))
             {
-                WriteLineColor(e.Message, ConsoleColor.White);
+                Log.Debug(e.Message);
             }
         };
 
