@@ -74,11 +74,11 @@ public class AutoMLMonitor : IMonitor
         //Log.Debug(" {@trainer} trial...", trainer.EstimatorType);
     }
 
-    public string GetBestTrial(TrialResult result)
+    public EstimatorType GetBestTrial(TrialResult result)
     {
         _stopwatch.Stop();
-        var pipeline = _pipeline.ToString(result.TrialSettings.Parameter);
-        return $" {pipeline.ToString().Split("=>").Last()}";
+        var trainer = ExtractTrainerName(result.TrialSettings);
+        return trainer.EstimatorType;
     }
 
     public static SweepableEstimator ExtractTrainerName(TrialSettings trialSettings)
